@@ -21,6 +21,10 @@ app = Quart(__name__)
 def serve_static(filename):
     return send_from_directory(app.static_folder, filename)
 
+class Media:
+    def __init__(self, data):
+        self.data = data
+
 class Message:
     def __init__(self, data):
         self.data = data
@@ -96,7 +100,7 @@ async def process_audio(message):
 @app.route('/callback', methods=["GET", "POST"])
 async def callback():
     message = Message(await request.get_json())
-    if message.type == "media":
+    if message.type == "media" and message.message_info["type"] == "audio":
         app.add_background_task(process_audio, message=message)
     return {}
 
