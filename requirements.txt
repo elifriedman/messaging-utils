@@ -1,0 +1,5 @@
+colorama==0.4.6
+insanely-fast-whisper>=0.0.12
+pyannote.audio==3.1.1
+quart==0.19.4
+shellingham==1.5.4
