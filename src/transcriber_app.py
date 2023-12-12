@@ -15,6 +15,10 @@ def save_json(obj, f, pretty: bool=False):
     with open(f, 'w') as f:
         json.dump(obj, f, indent=4 if pretty is True else None)
 
+def load_txt(f):
+    with open(f) as f:
+        return f.read().strip()
+
 app = Quart(__name__)
 
 @app.route('/static/<path:filename>')
@@ -83,7 +87,7 @@ def run_whisper(audio_path):
         if code != 0:
             return f"ERROR: {out.stderr.decode()}"
         output = load_json(transcript)
-        os.remove(trasncript)
+        os.remove(transcript)
         return output["text"]
     except Exception as exc:
         return f"ERROR: {exc}"
@@ -95,7 +99,10 @@ async def process_audio(message):
     out = run_whisper(audio_file)
     out = f"TRANSCRIPTION: {out}"
     os.remove(audio_file)
-    response = requests.post("http://localhost:3000/message/reply/test", data=message.make_reply(out))
+    headers = {"x-api-key": load_txt("api_key.cfg")}
+    response = requests.post("http://localhost:3000/message/reply/test", headers=headers, data=message.make_reply(out))
+    if not response.status_code == 200:
+        print(f"ERROR: ({response.status_code}: {response.reason})")
 
 @app.route('/callback', methods=["GET", "POST"])
 async def callback():
