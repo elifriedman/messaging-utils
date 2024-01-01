@@ -5,6 +5,7 @@ import requests
 import os
 from pathlib import Path
 from src import utils
+from eli_utils import load_json
 
 
 def save_audio_in_tempdir(data):
@@ -36,7 +37,7 @@ def run_whisper(audio_path):
 
 class AudioTranscriberRoute:
     def is_applicable(self, message):
-        return message.type == "media" and "message" in message.data["data"]["message"] and message.data["data"]["message"]["type"] in ["audio", "ptt"]
+        return message.type == "media" and message.message_info["type"] in ["audio", "ptt"]
 
     async def process(self, message):
         data = message.get_media()
