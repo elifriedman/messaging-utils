@@ -8,16 +8,26 @@ from gpt import Context, Role
 group_save_path = Path("conversations")
 group_save_path.mkdir(exist_ok=True)
 
+DEFAULT_SETTINGS = dict(
+            model="gpt-4",
+            temperature=0.5,
+            max_tokens=2000,
+            frequency_penalty=0,
+            presence_penalty=0.6,
+            seed=None,
+            max_contexts=100,
+        )
 
 class GroupCreator:
     def is_applicable(self, message):
-        new_group = message.type == "group_join"
-        return new_group
+        new_group = message.type == "group_join" 
+        new_group_in_community = message.type == "group_update" and message.message_info["type"] == "create"
+        return new_group or new_group_in_community
 
     async def process(self, message):
         group_id = message.message_info["id"]["remote"]
         path = group_save_path / group_id
-        save_json({"group_name": None, "group_description": None, "conversation": []}, path)
+        save_json({"group_name": None, "group_description": None, "conversation": [], "settings": DEFAULT_SETTINGS}, path)
 
 
 class GroupHandler:
@@ -28,15 +38,8 @@ class GroupHandler:
     def __init__(self, group_id):
         self.group_id = group_id
         self.path = group_save_path / self.group_id
-        self.settings = dict(
-            model="gpt-4",
-            temperature=0.5,
-            max_tokens=2000,
-            frequency_penalty=0,
-            presence_penalty=0.6,
-            seed=None,
-            max_contexts=100,
-        )
+        data = load_json(self.path)
+        self.settings = data.get("settings", DEFAULT_SETTINGS)
 
     def is_applicable(self, message):
         group_id = message.message_info["id"]["remote"]
@@ -60,6 +63,22 @@ class GroupHandler:
         save_json(data, self.path, pretty=True)
         return data
 
+    def is_config_message(self, body):
+        configs = [self.SETTINGS, self.HELP]
+        for config in configs:
+            if config in body.lower():
+                return True
+        return False
+
+    def handle_config_message(self, body):
+        if self.HELP in body.lower():
+            response_message = f"/settings\n" + "\n".join(sorted([f"{k}={v}" for k, v in self.settings.items()]))
+        elif self.SETTINGS in body.lower():
+            response_message = self.process_settings(last_message)
+        else:
+            return
+        self.send_message(response_message)
+
     async def process(self, message):
         data = self.update_group_info()
         if message.type != "message":
@@ -67,8 +86,11 @@ class GroupHandler:
         body = message.get_text()
         author = message.sender
         timestamp = message.data["received_time"]
-        data["conversation"].append({"author": author, "body": body, "timestamp": timestamp})
-        self.process_conversation(data)
+        if self.is_config_message(body):
+            self.handle_config_message(body)
+        else:
+            data["conversation"].append({"author": author, "body": body, "timestamp": timestamp})
+            self.process_conversation(data)
         save_json(data, self.path, pretty=True)
 
     def __eq__(self, other):
@@ -89,29 +111,27 @@ class GroupHandler:
                 if value_changed:
                     changed_keys.append(k)
                 self.settings[k] = typed_v
+        data = load_json(self.path)
+        data["settings"] = self.settings
+        save_json(data, self.path, pretty=True)
         return "Updated settings: " + ", ".join(changed_keys)
 
     def process_conversation(self, data):
         instructions = data["group_description"] or ""
         conversation = data["conversation"]
         last_message = conversation[-1]["body"]
-        print(f"{last_message}")
-        if self.HELP in last_message.lower():
-            print("helping")
-            response_message = f"/settings\n" + "\n".join(sorted([f"{k}={v}" for k, v in self.settings.items()]))
-        elif self.SETTINGS in last_message.lower():
-            print("settings")
-            response_message = self.process_settings(last_message)
-        else:
-            context = Context(instructions=instructions, max_contexts=100)
-            for turn in conversation:
-                if turn["author"] == self.NAME:
-                    context.add(content=turn["body"], role=Role.ASSISTANT)
-                else:
-                    context.add(content=turn["body"], role=Role.USER)
-            response_message = context.get_response(**self.settings)
-            conversation.append({"author": self.NAME, "body": response_message, "timestamp": str(datetime.now())})
-        input_data = {"chatId": self.group_id, "contentType": "string", "content": response_message}
+        context = Context(instructions=instructions, max_contexts=100)
+        for turn in conversation:
+            if turn["author"] == self.NAME:
+                context.add(content=turn["body"], role=Role.ASSISTANT)
+            else:
+                context.add(content=turn["body"], role=Role.USER)
+        response_message = context.get_response(**self.settings)
+        conversation.append({"author": self.NAME, "body": response_message, "timestamp": str(datetime.now())})
+        self.send_message(message=response_message)
+
+    def send_message(self, message):
+        input_data = {"chatId": self.group_id, "contentType": "string", "content": message}
         response = requests.post(
             f"http://localhost:3000/client/sendMessage/test", headers=utils.make_headers(), data=input_data
         )
