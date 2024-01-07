@@ -74,7 +74,7 @@ class GroupHandler:
         if self.HELP in body.lower():
             response_message = f"/settings\n" + "\n".join(sorted([f"{k}={v}" for k, v in self.settings.items()]))
         elif self.SETTINGS in body.lower():
-            response_message = self.process_settings(last_message)
+            response_message = self.process_settings(body)
         else:
             return
         self.send_message(response_message)

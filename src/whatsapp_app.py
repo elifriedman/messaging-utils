@@ -1,4 +1,5 @@
 import tempfile
+import traceback
 import subprocess
 import base64
 import json
@@ -94,7 +95,14 @@ class WhatsappRouter:
         message = Message(data)
         self.update_routes()
         for route in self.routes:
-            if route.is_applicable(message):
+            try:
+                is_applicable = route.is_applicable(message)
+            except (KeyError, TypeError) as exc:
+                formatted = traceback.format_exception(exc, limit=3)
+                msg = formatted
+                app.logger.error(f"ERROR {route}.is_applicable(): {''.join(msg)} {exc}")
+                continue
+            if is_applicable:
                 app.add_background_task(route.process, message=message)
         return {}
 
