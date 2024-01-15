@@ -1,3 +1,4 @@
+import os
 import requests
 from datetime import datetime
 from pathlib import Path
@@ -16,6 +17,7 @@ DEFAULT_SETTINGS = dict(
             presence_penalty=0.6,
             seed=None,
             max_contexts=100,
+            api_key=os.getenv("OPENAI_API_KEY")
         )
 
 class GroupCreator:
@@ -70,11 +72,12 @@ class GroupHandler:
                 return True
         return False
 
-    def handle_config_message(self, body):
+    def handle_config_message(self, body, data):
+        format_keys = lambda k, v: f"{k}={v}" if k != "api_key" else f"{k}={v[:3]}..{v[-3:]}"
         if self.HELP in body.lower():
-            response_message = f"/settings\n" + "\n".join(sorted([f"{k}={v}" for k, v in self.settings.items()]))
+            response_message = f"/settings\n" + "\n".join(sorted([format_keys(k, v) for k, v in self.settings.items()]))
         elif self.SETTINGS in body.lower():
-            response_message = self.process_settings(body)
+            response_message = self.process_settings(body, data)
         else:
             return
         self.send_message(response_message)
@@ -87,7 +90,7 @@ class GroupHandler:
         author = message.sender
         timestamp = message.data["received_time"]
         if self.is_config_message(body):
-            self.handle_config_message(body)
+            self.handle_config_message(body, data)
         else:
             data["conversation"].append({"author": author, "body": body, "timestamp": timestamp})
             self.process_conversation(data)
@@ -96,7 +99,7 @@ class GroupHandler:
     def __eq__(self, other):
         return isinstance(other, type(self)) and self.group_id == other.group_id
 
-    def process_settings(self, message):
+    def process_settings(self, message, data):
         settings = message.split("\n")
         changed_keys = []
         for row in settings:
@@ -111,9 +114,7 @@ class GroupHandler:
                 if value_changed:
                     changed_keys.append(k)
                 self.settings[k] = typed_v
-        data = load_json(self.path)
         data["settings"] = self.settings
-        save_json(data, self.path, pretty=True)
         return "Updated settings: " + ", ".join(changed_keys)
 
     def process_conversation(self, data):
