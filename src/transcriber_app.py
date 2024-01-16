@@ -19,7 +19,8 @@ def save_audio_in_tempdir(data):
 
 def run_whisper(audio_path):
     transcript = f"{audio_path}.json"
-    args = ["insanely-fast-whisper",
+    venv_bin = Path(__file__).absolute().parent.parent / "venv/bin/"
+    args = [str(venv_bin / "insanely-fast-whisper"),
             "--model-name", "distil-whisper/large-v2",
             "--device-id", "1",
             "--file-name", audio_path, "--transcript-path", transcript]
