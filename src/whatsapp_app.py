@@ -1,26 +1,30 @@
-import tempfile
-import traceback
-import subprocess
 import base64
-import json
-import os
-from datetime import datetime
+import time
+import requests
+import traceback
+from datetime import datetime, timedelta
 from pathlib import Path
 from quart import Quart, request, jsonify, send_file, render_template, send_from_directory, make_response
 from src.transcriber_app import AudioTranscriberRoute
 from src.chatbot import GroupHandler, GroupCreator, group_save_path
-from eli_utils import load_json, save_json, load_txt
+from src.speedate_response import SpeedDateResponse
+from src import utils
+from eli_utils import load_json, save_json, load_txt, save_txt
 
 
 app = Quart(__name__)
 
-@app.route('/static/<path:filename>')
+
+@app.route("/static/<path:filename>")
 def serve_static(filename):
+    print(f"{filename=}")
     return send_from_directory(app.static_folder, filename)
+
 
 class Media:
     def __init__(self, data):
         self.data = data
+
 
 class Message:
     def __init__(self, data):
@@ -65,11 +69,7 @@ class Message:
         return data["message"]["body"]
 
     def make_reply(self, content):
-        data = {
-                "content": content,
-                "chatId": self.chat_id,
-                "messageId": self.message_id
-                }
+        data = {"content": content, "chatId": self.chat_id, "messageId": self.message_id}
         return data
 
 
@@ -106,12 +106,51 @@ class WhatsappRouter:
                 app.add_background_task(route.process, message=message)
         return {}
 
-if __name__ == '__main__':
+
+class QRScanner:
+    def __init__(self):
+        self.running = False
+        self.last_run = None
+
+    def is_applicable(self, message):
+        is_qr = message.type == "qr" and "qr" in message.data["data"]
+        return is_qr
+
+    async def process(self, message):
+        already_checked = self.last_run is not None and datetime.now() - self.last_run < timedelta(seconds=60)
+        if self.running is True or already_checked:
+            return
+        self.running = True
+        self.last_run = datetime.now()
+        response = requests.get(f"http://localhost:3000/session/status/test", headers=utils.make_headers())
+        data = response.json()
+        if data["success"] is True:
+            return
+        response = requests.get(f"http://localhost:3000/session/terminate/test", headers=utils.make_headers())
+        response = requests.get(f"http://localhost:3000/session/start/test", headers=utils.make_headers())
+        time.sleep(5)
+        response = requests.get(f"http://localhost:3000/session/qr/test/image", headers=utils.make_headers())
+        qr_image = base64.b64encode(response.content).decode()
+        html = f"""<!DOCTYPE html>
+<html>
+<body>
+    <h1>Session Reset: {str(datetime.now())}</h1>
+    <img src="data:image/png;base64,{qr_image}" alt="QR Code" />
+</body>
+</html>
+"""
+        save_txt(html, "src/static/reset.html")
+        self.running = False
+
+
+if __name__ == "__main__":
     router = WhatsappRouter()
-    app.route('/callback', methods=["GET", "POST"])(router.callback)
-    router.add_route(AudioTranscriberRoute())
-    router.add_route(GroupCreator())
-    app.run(debug=True)
+    app.route("/callback", methods=["GET", "POST"])(router.callback)
+    # router.add_route(AudioTranscriberRoute())
+    # router.add_route(GroupCreator())
+    router.add_route(QRScanner())
+    # router.add_route(SpeedDateResponse())
+    app.run(debug=True, port=5093, host="0.0.0.0")
 
 # git clone https://github.com/chrishubert/whatsapp-api.git
 # change BASE_WEBHOOK_URL in docker-compose.yml to point to your Quart script
